@@ -1,663 +1,503 @@
-# Imports
-from selenium import webdriver
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.common.proxy import Proxy, ProxyType
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from colorama import Fore
-from timeit import default_timer as timer
-from pystyle import Center, Colorate, Colors
-from datetime import timedelta
-import sys
-import time
-import os
-import random
-import threading
+from tls_client import Session
+from base64 import b64encode
+from json import dumps
 import json
+from threading import Lock,Thread
+from colorama import Fore
+import requests
+import datetime
+import time
+from threading import Lock
+import os
+import sys
+from faker import Faker
+from random import randint
+import colorama
+import urllib
+colorama.init(autoreset=True)
 
-thread_lock = threading.Lock()
-activated_accounts = 0
+thread_lock = Lock()
+config = json.load(open("config.json"))
+request_exceptions = (requests.exceptions.ProxyError, requests.exceptions.Timeout, requests.exceptions.SSLError)
+
+class Console():
+    def success(message):
+        print(f"{Fore.LIGHTGREEN_EX}[{datetime.datetime.now().strftime('%H:%M:%S')}] {message}{Fore.RESET}")
+
+    
+    def error(message):
+        print(f"{Fore.LIGHTBLACK_EX}[{datetime.datetime.now().strftime('%H:%M:%S')}] {Fore.LIGHTRED_EX}{message}{Fore.RESET}")
 
 
-class Console:
-    """Console utils"""
+    def info(message):
+        print(f"{Fore.LIGHTBLACK_EX}[{datetime.datetime.now().strftime('%H:%M:%S')}] {Fore.LIGHTBLUE_EX}{message}{Fore.RESET}")
 
-    @staticmethod
-    def _time():
-        return time.strftime("%H:%M:%S", time.gmtime())
 
-    @staticmethod
-    def clear():
-        os.system("cls" if os.name == "nt" else "clear")
+    def warning(message):
+        print(f"{Fore.LIGHTBLACK_EX}[{datetime.datetime.now().strftime('%H:%M:%S')}] {Fore.LIGHTYELLOW_EX}{message}{Fore.RESET}")
 
-    # Safe print, to stop overlapping when printing in thread tasks
-    @staticmethod
-    def sprint(content: str, status: bool = True) -> None:
-        thread_lock.acquire()
-        sys.stdout.write(
-            f"{Fore.RESET}[{Fore.LIGHTBLUE_EX}{Console()._time()}{Fore.RESET}] {Fore.GREEN if status else Fore.RED}{content}"
-            + "\n"
-            + Fore.RESET
-        )
-        thread_lock.release()
 
-    @staticmethod
-    def update_title() -> None:
-        start = timer()
+class Utils():
+    def build_num() -> int:
+        response = requests.get("https://discord.com/app")
+        js_version = response.text.split('"></script><script src="/assets/')[2].split('" integrity')[0]
+        url = f"https://discord.com/assets/{js_version}"
+        response = requests.get(url)
+        build_number = response.text.split('(t="')[1].split('")?t:"")')[0]
+        return int(build_number)
+    
+    def get_xproperties(buildnum : int):
+        return b64encode(dumps({"os":"Windows","browser":"Discord Client","release_channel":"canary","client_version":"1.0.59","os_version":"10.0.22621","os_arch":"x64","system_locale":"en-US","client_build_number":buildnum,"native_build_number":31409,"client_event_source":None,"design_id":0}).encode()).decode()
+    def remove_content(filename: str, delete_line: str) -> None:
+        with thread_lock, open(filename, "r+") as file:
+            lines = file.readlines()
+            file.seek(0)
+            file.writelines(line for line in lines if delete_line not in line)
+            file.truncate()
+buildnum = Utils.build_num()
+Console.info(f'Successfully fetched build num -> {buildnum}')
 
+class Main:
+    def __init__(self, disc_token :  str, promo_link: str, full_vcc: str):
+        self.disc_session = Session(client_identifier="chrome110")
+        self.stripe_session = Session(client_identifier="chrome110")
+        self.token = disc_token
+        self.promo_link = promo_link
+        self.card_num = full_vcc.split(':')[0]
+        self.expiry_month = full_vcc.split(":")[1][0:2]
+        self.expiry_year = full_vcc.split(":")[1][2:4]
+        self.cvv = full_vcc.split(":")[2]
+        self.fake = Faker()
+        self.real_name = self.fake.name()
+        self.line1 = "Steret Road 11"
+        self.city = "Warsaw"
+        self.state = "Warsaw"
+        self.country = 'PL'
+        self.postal_code = "10080"
+        self.muid = 'dbb65eeb-b374-4689-b6bb-e87664866dd808646f'
+        self.guid = '63204968-2f91-4f31-af1e-7286de54274eb90521'
+        self.sid = '28076929-a631-4ec8-b7c9-21a77627c91826511c'
+        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36"
+        self.locale = 'en-US'
+        if ":" in self.token:
+            self.token = self.token.split(":")[2]
+        self.promo_link = self.promo_link.replace("https://discord.com/billing/promotions/","").replace('https://promos.discord.gg/','')
+        self.disc_session.get("https://discord.com/app",headers={
+    'authority': 'discord.com',
+    'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+    'accept-language': 'en-US,en;q=0.9',
+    'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'document',
+    'sec-fetch-mode': 'navigate',
+    'sec-fetch-site': 'none',
+    'sec-fetch-user': '?1',
+    'upgrade-insecure-requests': '1',
+    'user-agent': self.user_agent,
+})
+
+    def stripe_tokens(self) -> bool:
+        self.time_on_page = randint(60000, 120000)
         while True:
-            thread_lock.acquire()
-            end = timer()
-            elapsed_time = timedelta(seconds=end - start)
-            os.system(
-                f"title Switch redeemer │ Activated Accounts: {activated_accounts} │ Elapsed: {elapsed_time}"
-            )
-            thread_lock.release()
-
-
-# Main
-class Nitro:
-    def __init__(self, token: str, cc: str, link: str, proxy: str = None) -> None:
-        if ":" in token:
-            self.token = token.split(":")[2]
-            self.full_token = token
-        else:
-            self.token = token
-
-        self.card_number, self.expiry, self.ccv = str(cc).split(":")
-        self.nitro_link = link
-        self.useragent = "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36"
-        self.proxy = proxy
-
-    def __init_driver__(self) -> None:
-        ser = Service(f"chromedriver.exe")
-
-        if not self.proxy:
-            capabilities = None
-        else:
-            proxy = Proxy()
-            proxy.proxy_type = ProxyType.MANUAL
-            proxy.http_proxy = self.proxy
-            proxy.ssl_proxy = self.proxy
-            capabilities = webdriver.DesiredCapabilities.CHROME
-            proxy.add_to_capabilities(capabilities)
-
-        # Spoofing to not get detected
-        options = Options()
-
-        options.add_experimental_option(
-            "excludeSwitches",
-            [
-                "enable-logging",
-                "enable-automation",
-                "ignore-certificate-errors",
-                "safebrowsing-disable-download-protection",
-                "safebrowsing-disable-auto-update",
-                "disable-client-side-phishing-detection",
-            ],
-        )
-
-        options.binary_location = (
-            "C:\Program Files\Google\Chrome Beta\Application\chrome.exe"
-        )
-        options.add_experimental_option("useAutomationExtension", False)
-        options.add_argument("--lang=en")
-        options.add_argument("--log-level=3")
-        options.add_argument("--incognito")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--ignore-certificate-errors")
-        options.add_argument("--ignore-ssl-errors")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--profile-directory=Null")
-        options.add_argument("--disable-extensions")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_argument("--start-maximized")
-        options.add_argument(f"--user-agent={self.useragent}")
-        options.add_argument("--headless")
-        options.add_argument("--disable-gpu")
-
-        self.driver = webdriver.Chrome(
-            service=ser, desired_capabilities=capabilities, options=options
-        )
-
-        self.driver.execute_cdp_cmd(
-            "Network.setUserAgentOverride", {"userAgent": self.useragent}
-        )
-
-        self.driver.execute_cdp_cmd(
-            "Page.addScriptToEvaluateOnNewDocument",
-            {
-                "source": """
-            Object.defineProperty(navigator, 'deviceMemory', {
-            get: () => 99
-            })
-        """
-            },
-        )
-
-        self.driver.execute_cdp_cmd(
-            "Page.addScriptToEvaluateOnNewDocument",
-            {
-                "source": """
-                Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-                })
-            """
-            },
-        )
-
-    def activate_nitro(self):
-        global activated_accounts
-
-        self.driver.get(self.nitro_link)
-
-        WebDriverWait(self.driver, 40).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@name='email']"))
-        )
-
-        # Login
-        for _ in range(3):
-            self.driver.execute_script(
-                '''
-            function login(token) {
-            setInterval(() => {
-            document.body.appendChild(document.createElement `iframe`).contentWindow.localStorage.token = `"${token}"`
-            }, 50);
-            setTimeout(() => {
-            location.reload();
-            }, 1500);
-            }
-            login("'''
-                + self.token
-                + """")
-            """
-            )
-
             try:
-                WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located(
-                        (By.XPATH, "//div[contains(text(),'Next')]")
-                    )
-                )
+                response = self.stripe_session.post('https://api.stripe.com/v1/tokens', headers={
+    'authority': 'api.stripe.com',
+    'accept': 'application/json',
+    'accept-language': 'en-US,en;q=0.9',
+    'content-type': 'application/x-www-form-urlencoded',
+    'origin': 'https://js.stripe.com',
+    'referer': 'https://js.stripe.com/',
+    'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-site',
+    'user-agent': self.user_agent,
+}, data=f'card[number]={self.card_num}&card[cvc]={self.cvv}&card[exp_month]={int(self.expiry_month)}&card[exp_year]={self.expiry_year}&guid={self.guid}&muid={self.muid}&sid={self.sid}&payment_user_agent=stripe.js%2F2c266ddfa7%3B+stripe-js-v3%2F2c266ddfa7&time_on_page={self.time_on_page}&key=pk_live_CUQtlpQUF0vufWpnpUmQvcdi&pasted_fields=number')
                 break
-            except:
-                continue
-
-        # Checks to see if code is taken
-        try:
-            WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located(
-                    (By.XPATH, "//div[contains(text(),'Next')]")
-                )
-            )
-        except:
-            if (
-                "Sorry, looks like this code has already been redeemed."
-                in self.driver.page_source
-            ):
-                Console().sprint("Code has been redeemed", False)
-                thread_lock.acquire()
-                with open("links.txt", "r+") as io:
-                    tokens = io.readlines()
-                    io.seek(0)
-                    for line in tokens:
-                        if not (self.nitro_link in line):
-                            io.write(line)
-                    io.truncate()
-                thread_lock.release()
-
-                return False
-            else:
-                Console().sprint("Token is invalid", False)
-                thread_lock.acquire()
-                with open("tokens.txt", "r+") as io:
-                    tokens = io.readlines()
-                    io.seek(0)
-                    for line in tokens:
-                        if not (self.token in line):
-                            io.write(line)
-                    io.truncate()
-                thread_lock.release()
-
-                return False
-
-        self.driver.execute_script(
-            """
-        document.querySelector("button[type='button']").click();
-        """
-        )
-
-        WebDriverWait(self.driver, 40).until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, "div[role='button'][aria-disabled='false']")
-            )
-        )
-
-        try:
-            self.driver.find_element(
-                By.CSS_SELECTOR, "div[role='button'][aria-disabled='false']"
-            ).click()
-        except:
-            try:
-                element = self.driver.find_element(
-                    By.CSS_SELECTOR, "div[role='button'][aria-disabled='false']"
-                )
-                self.driver.execute_script("arguments[0].click();", element)
-            except:
-                self.driver.execute_script(
-                    "document.querySelector('div[role='button'][aria-disabled='false']').click();"
-                )
-
-        self.driver.find_element(
-            By.XPATH,
-            "//div[@role='listbox']//div[@role='option']//div//div[contains(text(),'Add a new payment method')]",
-        ).click()
-
-        WebDriverWait(self.driver, 40).until(
-            EC.presence_of_element_located((By.XPATH, "//body//div//button[1]"))
-        )
-
-        self.driver.execute_script(
-            """
-        document.querySelector("body div button:nth-child(1)").click();
-        """
-        )
-
-        # All cc info is under an iframe
-        WebDriverWait(self.driver, 50).until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "iframe[title='Secure card number input frame']")
-            )
-        )
-
-        WebDriverWait(self.driver, 50).until(
-            EC.frame_to_be_available_and_switch_to_it(
-                self.driver.find_element(
-                    By.CSS_SELECTOR, "iframe[title='Secure card number input frame']"
-                )
-            )
-        )
-
-        WebDriverWait(self.driver, 40).until(
-            EC.element_to_be_clickable((By.NAME, "cardnumber"))
-        )
-        self.driver.find_element(By.NAME, "cardnumber").send_keys(self.card_number)
-
-        self.driver.switch_to.default_content()
-        self.driver.switch_to.frame(1)
-        WebDriverWait(self.driver, 40).until(
-            EC.element_to_be_clickable((By.NAME, "exp-date"))
-        )
-        self.driver.find_element(By.NAME, "exp-date").send_keys(self.expiry)
-
-        self.driver.switch_to.default_content()
-        self.driver.switch_to.frame(2)
-        WebDriverWait(self.driver, 40).until(
-            EC.element_to_be_clickable((By.NAME, "cvc"))
-        )
-        self.driver.find_element(By.NAME, "cvc").send_keys(self.ccv)
-
-        self.driver.switch_to.default_content()
-        WebDriverWait(self.driver, 40).until(
-            EC.element_to_be_clickable((By.NAME, "name"))
-        )
-        self.driver.find_element(By.NAME, "name").send_keys("Joseph Ring")
-
-        self.driver.execute_script(
-            """
-        document.querySelector("button[type='submit']").click();
-        """
-        )
-
-        try:
-            WebDriverWait(self.driver, 40).until(
-                EC.presence_of_element_located(
-                    (By.XPATH, "//input[@autocomplete='address-line1']")
-                )
-            )
-        except TimeoutException:
-            if "unable to confirm payment method" in self.driver.page_source.lower():
-                Console().sprint(
-                    f"VCC Has Failed -> {self.card_number}:{self.expiry}:{self.ccv}",
-                    False,
-                )
-                used_vcc.append(f"{self.card_number}:{self.expiry}:{self.ccv}")
-                return
-            else:
-                raise (TimeoutException)
-
-        WebDriverWait(self.driver, 40).until(
-            EC.element_to_be_clickable((By.ID, "uid_27"))
-        )
-        country = self.driver.find_element(By.ID, "uid_27")
-        country.click()
-        country.send_keys("UnitedStates")
-        country.send_keys(Keys.ENTER)
-        country.send_keys(Keys.ENTER)
-
-        WebDriverWait(self.driver, 40).until(
-            EC.element_to_be_clickable(
-                (By.XPATH, "//input[@autocomplete='address-line1']")
-            )
-        )
-        self.driver.find_element(
-            By.XPATH, "//input[@autocomplete='address-line1']"
-        ).send_keys("420 6th Street")
-
-        WebDriverWait(self.driver, 40).until(
-            EC.element_to_be_clickable((By.XPATH, "//input[@name='city']"))
-        )
-        self.driver.find_element(By.XPATH, "//input[@name='city']").send_keys("Decatur")
-
-        self.driver.switch_to.default_content()
-
-        WebDriverWait(self.driver, 40).until(
-            EC.element_to_be_clickable((By.XPATH, "//input[@placeholder='Select']"))
-        )
-        state = self.driver.find_element(By.XPATH, "//input[@placeholder='Select']")
-        state.click()
-        state.send_keys("Nebraska")
-        state.send_keys(Keys.ENTER)
-        state.send_keys(Keys.ENTER)
-
-        WebDriverWait(self.driver, 40).until(
-            EC.element_to_be_clickable((By.XPATH, "//input[@name='postalCode']"))
-        )
-        self.driver.find_element(By.XPATH, "//input[@placeholder='00000']").send_keys(
-            "68020"
-        )
-
-        self.driver.execute_script(
-            """
-        document.querySelector("button:nth-child(1)").click();
-        """
-        )
-
-        try:
-            WebDriverWait(self.driver, 40).until(
-                EC.presence_of_element_located((By.XPATH, "//input[@type='checkbox']"))
-            )
-        except:
-            pass
-
-        if not ("Today's Total" in self.driver.page_source):
-            for ___ in range(2):
-                self.driver.refresh()
-
-                WebDriverWait(self.driver, 40).until(
-                    EC.element_to_be_clickable(
-                        (By.CSS_SELECTOR, "button[type='button']")
-                    )
-                )
-
-                self.driver.execute_script(
-                    """
-                document.querySelector("button[type='button']").click();
-                """
-                )
-
-                WebDriverWait(self.driver, 40).until(
-                    EC.presence_of_element_located(
-                        (By.XPATH, "//div[contains(text(),'I agree to the')]")
-                    )
-                )
-
-                self.driver.execute_script(
-                    """
-                document.querySelector("input[type='checkbox']").click();
-                """
-                )
-
-                self.driver.execute_script(
-                    """
-                document.querySelector("button[type='submit']").click();
-                """
-                )
-
-                try:
-                    WebDriverWait(self.driver, 25).until(
-                        EC.presence_of_element_located(
-                            (
-                                By.XPATH,
-                                "//div[contains(text(),'You now have superpowered perks and Server Boosts.')]",
-                            )
-                        )
-                    )
-                    Console().sprint(f"Nitro Activated -> {self.token}", True)
-                    thread_lock.acquire()
-                    activated_accounts += 1
-                    with open("Success.txt", "a") as nitro_success:
-                        if hasattr(self, "full_token"):
-                            nitro_success.write(self.full_token + "\n")
-                        else:
-                            nitro_success.write(self.token + "\n")
-
-                    # Removes the used materials
-                    with open("tokens.txt", "r+") as io:
-                        tokens = io.readlines()
-                        io.seek(0)
-                        for line in tokens:
-                            if not (self.token in line):
-                                io.write(line)
-                        io.truncate()
-
-                    with open("links.txt", "r+") as io:
-                        tokens = io.readlines()
-                        io.seek(0)
-                        for line in tokens:
-                            if not (self.nitro_link in line):
-                                io.write(line)
-                        io.truncate()
-                    thread_lock.release()
-
-                except TimeoutError:
-                    if ___ != 2:
-                        continue
-                    else:
-                        sys.stdout.write(
-                            f"{Fore.RED}[-] Could Not Activate Nitro -> {self.token}\n"
-                        )
-
-                    return
-
-                except:
+            except Exception as e:
+                if "failed to do" in str(e):
                     continue
+                Console.error(str(e))
+                return False
+        if not response.status_code in [200,201,204]:
+            Console.error(response.text)
+            return False
+        self.stripe_card_id = response.json()["id"]
+        return True
 
-            sys.stdout.write(
-                f"{Fore.RED}[-] Could Not Activate Nitro -> {self.token}\n"
-            )
-
-        else:
-            self.driver.execute_script(
-                """
-            document.querySelector("input[type='checkbox']").click();
-            """
-            )
-
-            self.driver.execute_script(
-                """
-            document.querySelector("button[type='submit']").click();
-            """
-            )
-
+    def setup_intents(self) -> bool:
+        while True:
             try:
-                WebDriverWait(self.driver, 40).until(
-                    EC.presence_of_element_located(
-                        (
-                            By.XPATH,
-                            "//div[contains(text(),'You now have superpowered perks and Server Boosts.')]",
-                        )
-                    )
-                )
-                Console().sprint(f"Nitro Activated -> {self.token}", True)
+                response = self.disc_session.post('https://discord.com/api/v9/users/@me/billing/stripe/setup-intents', headers={
+    'authority': 'discord.com',
+    'accept': '*/*',
+    'accept-language': 'en-US,en;q=0.9',
+    'authorization': self.token,
+    'origin': 'https://discord.com',
+    'referer': 'https://discord.com/channels/@me',
+    'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'user-agent': self.user_agent,
+    'x-debug-options': 'bugReporterEnabled',
+    'x-discord-locale': self.locale,
+    'x-super-properties': Utils.get_xproperties(buildnum),
+})
+                break
+            except Exception as e:
+                if "failed to do" in str(e):
+                    continue
+                return False
+        if not response.status_code in [200,201,204]:
 
-                thread_lock.acquire()
-                activated_accounts += 1
+            return False
+        self.stripe_client_secret = response.json()['client_secret']
+        self.stripe_seti_id = self.stripe_client_secret.split("_secret")[0]
+        return True
+    
+    def get_billing_address_token(self) -> bool:
+        while True:
+            try:
+                response = self.disc_session.post(
+    'https://discord.com/api/v9/users/@me/billing/payment-sources/validate-billing-address',
+    headers={
+    'authority': 'discord.com',
+    'accept': '*/*',
+    'accept-language': 'en-US,en;q=0.9',
+    'authorization': self.token,
+    'content-type': 'application/json',
+    'origin': 'https://discord.com',
+    'referer': 'https://discord.com/channels/@me',
+    'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'user-agent': self.user_agent,
+    'x-debug-options': 'bugReporterEnabled',
+    'x-discord-locale': self.locale,
+    'x-super-properties': Utils.get_xproperties(buildnum=buildnum),
+},
+    json={
+    'billing_address': {
+        'name': self.real_name,
+        'line_1': self.line1,
+        'line_2': '',
+        'city': self.city,
+        'state': self.state,
+        'postal_code': self.postal_code,
+        'country': self.country,
+        'email': '',
+    },
+},
+)
+                break
+            except Exception as e:
+                if "failed to do" in str(e):
+                    continue
+                return False
+        if not response.status_code in [200,201,204]:
+            return False
+        self.billing_address_token = response.json()["token"]
+        return True
+    
+    def stripe_confirm(self) -> None:
+        time_on_page = randint(60000, 120000)
+        while True:
+            try:
+                response = self.stripe_session.post(
+    f'https://api.stripe.com/v1/setup_intents/{self.stripe_seti_id}/confirm',
+    headers={
+    'authority': 'api.stripe.com',
+    'accept': 'application/json',
+    'accept-language': 'en-US,en;q=0.9',
+    'content-type': 'application/x-www-form-urlencoded',
+    'origin': 'https://js.stripe.com',
+    'referer': 'https://js.stripe.com/',
+    'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-site',
+    'user-agent': self.user_agent,
+},data=f'payment_method_data[type]=card&payment_method_data[card][token]={self.stripe_card_id}&payment_method_data[billing_details][address][line1]={self.line1}&payment_method_data[billing_details][address][line2]=&payment_method_data[billing_details][address][city]={self.city}&payment_method_data[billing_details][address][state]={self.state}&payment_method_data[billing_details][address][postal_code]={self.postal_code}&payment_method_data[billing_details][address][country]={self.country}&payment_method_data[billing_details][name]={self.real_name}&payment_method_data[guid]={self.guid}&payment_method_data[muid]={self.muid}&payment_method_data[sid]={self.sid}&payment_method_data[payment_user_agent]=stripe.js%2F2c266ddfa7%3B+stripe-js-v3%2F2c266ddfa7&payment_method_data[time_on_page]={time_on_page}&expected_payment_method_type=card&use_stripe_sdk=true&key=pk_live_CUQtlpQUF0vufWpnpUmQvcdi&client_secret={self.stripe_client_secret}',
+)
+                break
+            except Exception as e:
+                if "failed to do" in str(e):
+                    continue
+                return False
+        if not response.status_code in [200,201,204]:
+            return False
+        self.pm_token = response.json()['payment_method']
+        return True
+    def add_pm_disc(self) -> None:
+        while True:
+            try:
+                response = self.disc_session.post(
+    'https://discord.com/api/v9/users/@me/billing/payment-sources',
+    headers={
+    'authority': 'discord.com',
+    'accept': '*/*',
+    'accept-language': 'en-US,en;q=0.9',
+    'authorization': self.token,
+    'content-type': 'application/json',
+    'origin': 'https://discord.com',
+    'referer': 'https://discord.com/channels/@me',
+    'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'user-agent': self.user_agent,
+    'x-debug-options': 'bugReporterEnabled',
+    'x-discord-locale': self.locale,
+    'x-super-properties': Utils.get_xproperties(buildnum),
+},
+    json={
+    'payment_gateway': 1,
+    'token': self.pm_token,
+    'billing_address': {
+        'name': self.real_name,
+        'line_1':self.line1,
+        'line_2': '',
+        'city': self.city,
+        'state': self.state,
+        'postal_code': self.postal_code,
+        'country': self.country,
+        'email': '',
+    },
+    'billing_address_token': self.billing_address_token,
+},
+)
+                break
+            except Exception as e:
+                if "failed to do" in str(e):
+                    continue
+                return False
+        if not response.status_code in [200,201,204]:
+            return False
+        self.disc_pm_id = response.json()['id']
+        return True
+    
+    def check_promo(self) -> None:
+        while True:
+            try:
+                response = self.disc_session.get(f'https://discord.com/api/v9/entitlements/gift-codes/{self.promo_link}',
+    params={'with_application': 'false','with_subscription_plan': 'true',},headers={
+    'authority': 'discord.com',
+    'accept': '*/*',
+    'accept-language': 'en-US,en;q=0.9',
+    'authorization': self.token,
+    'referer': f'https://discord.com/billing/promotions/{self.promo_link}',
+    'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'user-agent': self.user_agent,
+    'x-debug-options': 'bugReporterEnabled',
+    'x-discord-locale': self.locale,
+    'x-super-properties': Utils.get_xproperties(buildnum),
+},
+)
+                break
+            except Exception as e:
+                if "failed to do" in str(e):
+                    continue
+                return False
+        if not response.status_code in [200,201,204]:
+            return False
+        if response.json()['uses']>0:
+            return "redeemed"
+        return True
+            
 
-                with open("Success.txt", "a") as nitro_success:
-                    if hasattr(self, "full_token"):
-                        nitro_success.write(self.full_token + "\n")
-                    else:
-                        nitro_success.write(self.token + "\n")
+    def redeem_promo(self) -> None:
+        while True:
+            try:
+                response = self.disc_session.post(
+    f'https://discord.com/api/v9/entitlements/gift-codes/{self.promo_link}/redeem',
+    headers={
+    'authority': 'discord.com',
+    'accept': '*/*',
+    'accept-language': 'en-US,en;q=0.9',
+    'authorization': self.token,
+    'content-type': 'application/json',
+    'origin': 'https://discord.com',
+    'referer': f'https://discord.com/billing/promotions/{self.promo_link}',
+    'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'user-agent': self.user_agent,
+    'x-debug-options': 'bugReporterEnabled',
+    'x-discord-locale': self.locale,
+    'x-super-properties': Utils.get_xproperties(buildnum),
+},json={
+    'channel_id': None,
+    'payment_source_id': self.disc_pm_id,
+    'gateway_checkout_context': None,
+},
+)               
+                break
+            except Exception as e:
+                if "failed to do" in str(e):
+                    continue
+                return False
+        Console.info(response.text)
+        if response.status_code in [200,201,204]:
+            return True
+        if "required" in response.text:
+            return "auth" , response.json()["payment_id"]
+        return False
+    def auth_fix(self, payment_id):
+        Console.info(payment_id)
+        while True:
+            try:
+                response = self.disc_session.get(
+    f'https://discord.com/api/v9/users/@me/billing/stripe/payment-intents/payments/{payment_id}',
+    headers={
+    'authority': 'discord.com',
+    'accept': '*/*',
+    'accept-language': 'en-US,en;q=0.9',
+    'authorization': self.token,
+    'referer': f'https://discord.com/billing/promotions/{self.promo_link}',
+    'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-origin',
+    'user-agent': self.user_agent,
+    'x-debug-options': 'bugReporterEnabled',
+    'x-discord-locale': self.locale,
+    'x-super-properties': Utils.get_xproperties(buildnum),
+},
+)
+                break
+            except Exception as e:
+                if "failed to do" in str(e):
+                    continue
+                return False
+        self.stripe_pm_client_secret = response.json()["stripe_payment_intent_client_secret"]
+        self.client_secret_id = self.stripe_pm_client_secret.split('_secret')[0]
+        while True:
+            try:
+                response = self.stripe_session.post(
+    f'https://api.stripe.com/v1/payment_intents/{self.client_secret_id}/confirm',
+    headers={
+    'authority': 'api.stripe.com',
+    'accept': 'application/json',
+    'accept-language': 'en-US,en;q=0.9',
+    'content-type': 'application/x-www-form-urlencoded',
+    'origin': 'https://js.stripe.com',
+    'referer': 'https://js.stripe.com/',
+    'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-site',
+    'user-agent': self.user_agent,
+},
+    data={
+    'expected_payment_method_type': 'card',
+    'use_stripe_sdk': 'true',
+    'key': 'pk_live_CUQtlpQUF0vufWpnpUmQvcdi',
+    'client_secret': self.stripe_pm_client_secret,
+},
+)
+                break
+            except Exception as e:
+                if "failed to do" in str(e):
+                    continue
+                return False
+        self.threeDS_source = response.json()['next_action']['use_stripe_sdk']['three_d_secure_2_source']
+        Console.info(self.threeDS_source)
+        while True:
+            try:
+                response = self.stripe_session.post('https://api.stripe.com/v1/3ds2/authenticate', headers={
+    'authority': 'api.stripe.com',
+    'accept': 'application/json',
+    'accept-language': 'en-US,en;q=0.9',
+    'content-type': 'application/x-www-form-urlencoded',
+    'origin': 'https://js.stripe.com',
+    'referer': 'https://js.stripe.com/',
+    'sec-ch-ua': '".Not/A)Brand";v="99", "Google Chrome";v="103", "Chromium";v="103"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sec-fetch-dest': 'empty',
+    'sec-fetch-mode': 'cors',
+    'sec-fetch-site': 'same-site',
+    'user-agent': self.user_agent,
+}, data={
+            "source": self.threeDS_source,
+            "browser": {"fingerprintAttempted":"false","fingerprintData":"null","challengeWindowSize":"null","threeDSCompInd":"Y","browserJavaEnabled":"false","browserJavascriptEnabled":"true","browserLanguage":"en-US","browserColorDepth":"24","browserScreenHeight":"768","browserScreenWidth":"1366","browserTZ":"420","browserUserAgent":self.user_agent},
+            "one_click_authn_device_support[hosted]": "false",
+            "one_click_authn_device_support[same_origin_frame]": "false",
+            "one_click_authn_device_support[spc_eligible]": "false",
+            "one_click_authn_device_support[webauthn_eligible]": "false",
+            "one_click_authn_device_support[publickey_credentials_get_allowed]": "true",
+            "key": "pk_live_CUQtlpQUF0vufWpnpUmQvcdi"
+        })
+                break
+            except Exception as e:
+                if "failed to do" in str(e):
+                    continue
+                return False
+class Redeem:
+    def __init__(self, discord_token: str, full_vcc : str, promo_link : str) -> None:
+        redeem_obj = Main(discord_token,promo_link,full_vcc)
 
-                with open("tokens.txt", "r+") as io:
-                    tokens = io.readlines()
-                    io.seek(0)
-                    for line in tokens:
-                        if not (self.token in line):
-                            io.write(line)
-                    io.truncate()
+        if not redeem_obj.stripe_tokens():
+            Console.error("Failed to get stripe tokens!")
+            return
+            
+        if not redeem_obj.setup_intents():
+            Console.error("Failed to setup intents!")
+            return
+        
+        if not redeem_obj.get_billing_address_token():
+            Console.error("Failed to get billing address token!")
+            return
+        
+        if not redeem_obj.stripe_confirm():
+            Console.error("Failed to setup confirm stripe token! [VCC invalid]")
+            return
+           
+        if not redeem_obj.add_pm_disc():
+            Console.error("Failed to link card!")
+            return
 
-                with open("links.txt", "r+") as io:
-                    links = io.readlines()
-                    io.seek(0)
-                    for line in links:
-                        if not (self.nitro_link in line):
-                            io.write(line)
-                    io.truncate()
+        if not redeem_obj.check_promo():
+            Console.error('Invalid promo link!')
 
-                thread_lock.release()
-
-            except:
-                Console().sprint(f"Could Not Activate Nitro -> {self.token}", False)
-
-    def __main__(self):
-        self.__init_driver__()
-
-        try:
-            self.activate_nitro()
-        except TimeoutException:
-            Console().sprint("Proxy or host timed out", False)
-        except:
-            Console().sprint("Unknown Error. Skipping...", False)
-
-
-if __name__ == "__main__":
-    Console().clear()
-
-    # Lists of supplies
-    nitro_links = open("links.txt", "r").read().splitlines()
-    tokens = open("tokens.txt", "r").read().splitlines()
-    vcc = open("vcc.txt", "r").read().splitlines()
-    proxies = open("proxies.txt", "r").read().splitlines()
-
-    print(
-        Center.XCenter(
-            Colorate.Vertical(
-                Colors.red_to_purple,
-                f"""
-                                                 Switch  Nitro Redeemer
-
-    """,
-                1,
-            )
-        )
-    )
-
-    sys.stdout.write(
-        f"{Fore.GREEN}Successfully Loaded{Fore.WHITE} ~ {Fore.LIGHTBLUE_EX}Nitro Links: {len(nitro_links)}, Tokens: {len(tokens)}, Vcc: {len(vcc)}, Proxies: {len(proxies)}"
-        + "\n"
-    )
-
-    new_list = []
-
-    with open("config.json", "r") as jsonfile:
-        config = json.load(jsonfile)
-
-    amt_of_use_on_cc = config["amt_of_use_on_cc"]
-    thread_count = config["thread_count"]
-
-    for x in range(len(vcc)):
-        if amt_of_use_on_cc > 1:
-            for _ in range(amt_of_use_on_cc):
-                new_list.append(vcc[x])
+        redeem = redeem_obj.redeem_promo()
+        if redeem==True:
+            Console.success(f"Activated -> {discord_token}")
+        elif "auth" in str(redeem):
+            Console.info("auth!")
+            payment_id = redeem[1]
+            redeem_obj.auth_fix(payment_id)
+            redeem = redeem_obj.redeem_promo()
+            if redeem==True:
+                Console.success(f"Activated -> {discord_token}")
+            else:
+                Console.error(redeem)
         else:
-            new_list.append(vcc[x])
+            Console.error(f"Failed to activate -> {discord_token}")
 
-    check_list = list(dict.fromkeys(new_list))
-
-    global used_vcc
-    used_vcc = []
-
-    check_status = False
-
-    def check_vcc():
-        while not check_status:
-            time.sleep(10)
-            for item in check_list:
-                if item not in new_list and item not in used_vcc:
-                    used_vcc.append(item)
-
-        return
-
-    def delete_vcc():
-        # To delete all used vcc
-        while not check_status:
-            time.sleep(10)
-            if len(used_vcc) <= 0:
-                with open("vcc.txt", "r+") as io:
-                    vccs = io.readlines()
-                    io.seek(0)
-                    for line in vccs:
-                        if not (line in list(dict.fromkeys(used_vcc))):
-                            io.write(line)
-                    io.truncate()
-
-            thread_lock.acquire()
-            used_vcc.clear()
-            thread_lock.release()
-
-    threading.Thread(target=check_vcc).start()
-    threading.Thread(target=delete_vcc).start()
-    threading.Thread(target=Console().update_title).start()
-
-    try:
-        while len(tokens) and len(new_list) and len(nitro_links) >= 1:
-            local_threads = []
-
-            for _ in range(int(thread_count)):
-                if len(proxies) >= 1:
-                    proxy = random.choice(proxies)
-                else:
-                    proxy = None
-
-                try:
-                    # Checks if vcc is invalid
-                    for _ in range(5):
-                        if new_list[0] in used_vcc:
-                            new_list.pop(0)
-                            cc = new_list[0]
-                        else:
-                            cc = new_list[0]
-                            break
-
-                    start_thread = threading.Thread(
-                        target=Nitro(tokens[0], cc, nitro_links[0], proxy).__main__
-                    )
-                    local_threads.append(start_thread)
-                    start_thread.start()
-                    tokens.pop(0)
-                    nitro_links.pop(0)
-                    new_list.pop(0)
-
-                except IndexError:
-                    raise (Exception)
-                except:
-                    pass
-
-            for x in local_threads:
-                x.join()
-    except:
-        pass
-
-    sys.stdout.write(f"{Fore.WHITE}[\] Ran out of usable materials\n")
-
-    check_status = True
-
-    os.system("pause")
-
-    os._exit(1)
+Redeem("obeyboscheq@outlook.com:PmZP7dwchRhh:OTg4MDQ5Mjc4NDY1MzcyMjAw.Gq6rIS.9OFjEIMqTdJJ9vM-dWwxOTTYzz3YJ6LGEV4siA","5170611388448570:0425:123","https://promos.discord.gg/DdcsxyPh6jMXKpVaQbgmKwvz")

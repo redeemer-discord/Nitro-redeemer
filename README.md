@@ -1,3 +1,3 @@
 # Nitro-Redeemer
-Dont buy from anyone use this redeemer free
-Proxy use 
+By Switch on Top#9615
+Proxy Need for run Redeemer
